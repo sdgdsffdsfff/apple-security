@@ -60,6 +60,23 @@ public class DefaultTokenServices implements TokenServices {
 	private ClientDetailsService clientDetailsService;
 	
 	private TokenEnhancer accessTokenEnhancer;
+	
+	public boolean isValidAccessToken(Authentication authentication) {
+		AccessToken existingAccessToken = tokenStore.getAccessToken(authentication);
+		if (existingAccessToken != null) {
+			if (existingAccessToken.isExpired()) {
+				return false;
+			}
+			else {
+				return true;
+			}
+		}
+		else {
+			return true;
+		}
+	}
+	
+	
 
 	@Override
 	public AccessToken createAccessToken(Authentication authentication) throws AuthenticationException {
@@ -242,6 +259,10 @@ public class DefaultTokenServices implements TokenServices {
 	public void setTokenStore(TokenStore tokenStore) {
 		this.tokenStore = tokenStore;
 	}
+	
+	public AccessToken getAccessToken(Authentication authentication) {
+		return tokenStore.getAccessToken(authentication);
+	}
 
 	public void setClientDetailsService(ClientDetailsService clientDetailsService) {
 		this.clientDetailsService = clientDetailsService;
@@ -304,6 +325,47 @@ public class DefaultTokenServices implements TokenServices {
 
 	public boolean isReuseRefreshToken() {
 		return reuseRefreshToken;
+	}
+	
+	
+	@Override
+	public void removeAccessToken(Authentication authentication) throws AuthenticationException {
+		AccessToken existingAccessToken = tokenStore.getAccessToken(authentication);
+		RefreshToken refreshToken = null;
+		if (existingAccessToken != null) {
+			if (existingAccessToken.getRefreshToken() != null) {
+				refreshToken = existingAccessToken.getRefreshToken();
+				// The token store could remove the refresh token when the
+				// access token is removed, but we want to
+				// be sure...
+				tokenStore.removeRefreshToken(refreshToken);
+			}
+			tokenStore.removeAccessToken(existingAccessToken);
+		}
+	}
+	
+	@Override
+	public void removeAccessToken(ClientDetails clientDetails, String refreshTokenValue) 
+			throws AuthenticationException {
+
+		if (!supportRefreshToken) {
+			throw new InvalidGrantException("Invalid refresh token: " + refreshTokenValue);
+		}
+
+		RefreshToken refreshToken = tokenStore.readRefreshToken(refreshTokenValue);
+		if (refreshToken == null) {
+			throw new InvalidGrantException("Invalid refresh token: " + refreshTokenValue);
+		}
+
+		Authentication authentication = tokenStore.readAuthenticationForRefreshToken(refreshToken);
+		String clientId = authentication.getClientDetails().getClientId();
+		if (clientId == null || !clientId.equals(clientDetails.getClientId())) {
+			throw new InvalidGrantException("Wrong client for this refresh token: " + refreshTokenValue);
+		}
+
+		// clear out any access tokens already associated with the refresh token.
+		tokenStore.removeAccessTokenUsingRefreshToken(refreshToken);
+		tokenStore.removeRefreshToken(refreshToken);
 	}
 	
 }
